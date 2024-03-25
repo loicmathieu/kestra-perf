@@ -1,0 +1,99 @@
+version: '3.4'
+
+services:
+  postgres:
+    image: postgres
+    restart: unless-stopped
+    volumes:
+      - ./docker/docker-entrypoint-initdb.d:/docker-entrypoint-initdb.d
+      - ./postgres-data:/var/lib/postgresql/data
+    env_file: .env
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -d $${KESTRA_POSTGRES_DB} -U $${KESTRA_POSTGRES_USER}"
+        ]
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      # TODO: implement start_period/start_interval
+
+  kestra:
+    image: kestra:custom
+    build:
+      # build a smaller image with only the plugins we want
+      #   ref: https://search.maven.org/search?q=io.kestra.plugin
+      dockerfile_inline: |
+        FROM kestra/kestra:latest
+        RUN /app/kestra plugins install \
+            io.kestra.plugin:plugin-crypto:LATEST \
+            io.kestra.plugin:plugin-fs:LATEST \
+            io.kestra.plugin:plugin-git:LATEST \
+            io.kestra.plugin:plugin-script:LATEST \
+            io.kestra.plugin:plugin-script-python:LATEST \
+            io.kestra.plugin:plugin-script-shell:LATEST \
+            io.kestra.plugin:plugin-notifications:LATEST
+    container_name: kestra
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    command: server standalone --worker-thread=128
+    volumes:
+      - ./kestra-data:/app/storage
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/kestra-wd:/tmp/kestra-wd
+    env_file: .env
+    user: "root"
+    environment:
+      JAVA_OPTS: |
+        -Dcom.sun.management.jmxremote
+        -Dcom.sun.management.jmxremote.port=9011
+        -Dcom.sun.management.jmxremote.rmi.port=9011
+        -Dcom.sun.management.jmxremote.local.only=false
+        -Dcom.sun.management.jmxremote.authenticate=false
+        -Dcom.sun.management.jmxremote.ssl=false
+        -Djava.rmi.server.hostname=localhost
+      KESTRA_CONFIGURATION: |
+        datasources:
+          postgres:
+            url: jdbc:postgresql://postgres:5432/${KESTRA_POSTGRES_DB}
+            driverClassName: org.postgresql.Driver
+            username: ${KESTRA_POSTGRES_USER}
+            password: ${KESTRA_POSTGRES_PASSWORD}
+        kestra:
+          environment:
+            name: reconrover
+            color: "#FCB37C"
+          server:
+            basic-auth:
+              enabled: false
+          repository:
+            type: postgres
+          storage:
+            type: local
+            local:
+              base-path: /app/storage/
+          queue:
+            type: postgres
+          tasks:
+            tmp-dir:
+              path: /tmp/kestra-wd/tmp
+            scripts:
+              docker:
+                volume-enabled: true
+          url: http://localhost:8080/
+    ports:
+      - 8080:8080
+      - "127.0.0.1:9011:9011"
+
+  tools:
+    # simply a stub to trigger a build of the tools container
+    image: kestra-perf:local
+    build:
+      dockerfile_inline: |
+        FROM alpine:3
+        RUN apk add --no-cache \
+          bind-tools ca-certificates jq git openssh-client py3-pip libpcap curl
+    command: echo "its okay for me to exit early"

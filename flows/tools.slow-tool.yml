@@ -1,0 +1,76 @@
+id: slow-tool
+namespace: tools
+
+labels:
+  tooltype: slow
+
+inputs:
+  - id: target
+    type: STRING
+    required: true
+
+tasks:
+  - id: add-labels
+    type: io.kestra.core.tasks.executions.Labels
+    labels:
+      target: "{{ inputs.target }}"
+
+  - id: log-it
+    type: io.kestra.core.tasks.log.Log
+    message: "working with target {{ inputs.target }}"
+
+  - id: wdir
+    type: io.kestra.core.tasks.flows.WorkingDirectory
+    tasks:
+      - id: filename
+        type: io.kestra.plugin.scripts.shell.Script
+        script: |
+          F=$(echo "{{ inputs.target }}" | sed 's/[^a-zA-Z0-9._-]/_/g').jsonl
+          touch $F
+
+          echo '::{"outputs":{"filename":"'$F'"}}::'
+
+      - id: logit
+        type: io.kestra.core.tasks.log.Log
+        message: "{{ outputs.filename.vars.filename }}"
+
+      - id: work
+        type: io.kestra.plugin.scripts.python.Script
+        docker:
+          image: kestra-perf:local
+          pullPolicy: NEVER
+        beforeCommands:
+          - "pip install --break-system-packages requests"
+        script: |
+          import random
+          import time
+          import json
+
+          import requests
+
+          t = random.randint(0, 50)
+          print(f'sleeping for {t}')
+
+          time.sleep(t)
+
+          top = requests.get('https://hacker-news.firebaseio.com/v0/topstories.json')
+          top = top.json()
+
+          for id in random.sample(top, k=random.randint(1, 30)):
+            story = requests.get(f'https://hacker-news.firebaseio.com/v0/item/{id}.json').json()
+            print(f'story: {story["title"]}')
+            if "{{ inputs.target }}" in story["title"]:
+              print('there is also a match, what!')
+
+            with open(f'{id}-{{ outputs.filename.vars.filename }}', 'a') as f:
+              f.write(json.dumps(story))
+
+      - id: out
+        type: io.kestra.core.tasks.storages.LocalFiles
+        outputs:
+          - "*.jsonl"
+
+outputs:
+  - id: results
+    type: JSON
+    value: "{{ outputs.out.uris }}"

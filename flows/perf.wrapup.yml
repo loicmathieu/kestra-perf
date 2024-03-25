@@ -1,0 +1,23 @@
+id: wrapup
+namespace: perf
+
+labels:
+  end: here
+
+inputs:
+  - id: stuff
+    type: JSON
+    required: true
+
+tasks:
+  - id: where-are-files
+    type: io.kestra.plugin.scripts.python.Script
+    script: |
+      import json
+
+      s = """{{ inputs.stuff }}"""
+      s = json.loads(s)
+
+      for a, b in s.items():
+        for c, d in b.items():
+          print(f'{a} -> {c}')

@@ -1,0 +1,69 @@
+id: process-batch
+namespace: perf
+
+labels:
+  purpose: intermediate-handler
+
+inputs:
+  - id: things
+    type: JSON
+    description: the list of things we need to process
+    required: true
+
+tasks:
+  - id: process
+    type: io.kestra.core.tasks.flows.EachParallel
+    value: "{{ inputs.things }}"
+    concurrent: 4
+    tasks:
+      - id: log
+        type: io.kestra.core.tasks.log.Log
+        message: "working with {{ taskrun.value }}"
+
+      - id: deps
+        type: io.kestra.core.tasks.flows.Dag
+        concurrent: 2
+        allowFailure: true
+        tasks:
+          - task:
+              id: fast-task
+              type: io.kestra.core.tasks.flows.Subflow
+              namespace: tools
+              flowId: fast-tool
+              inputs:
+                target: "{{ parents[0].taskrun.value }}"
+              inheritLabels: true
+              allowFailure: true
+              wait: true
+
+          - task:
+              id: medium-task
+              type: io.kestra.core.tasks.flows.Subflow
+              namespace: tools
+              flowId: slow-tool
+              inputs:
+                target: "{{ parents[0].taskrun.value }}"
+              inheritLabels: true
+              wait: true
+            dependsOn:
+              - fast-task
+
+          - task:
+              id: fast-task-again
+              type: io.kestra.core.tasks.flows.Subflow
+              namespace: tools
+              flowId: fast-tool
+              inheritLabels: true
+              allowFailure: true
+              wait: true
+            dependsOn:
+              - fast-task
+
+      - id: wrapup
+        type: io.kestra.core.tasks.log.Log
+        message: wrapped up execution for {{ taskrun.value }}
+
+outputs:
+  - id: results
+    type: JSON
+    value: "{{ outputs }}"

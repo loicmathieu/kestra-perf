@@ -1,0 +1,47 @@
+id: fast-tool
+namespace: tools
+
+labels:
+  tooltype: fast
+
+inputs:
+  - id: target
+    type: STRING
+    required: false
+    defaults: "(none)"
+
+tasks:
+  - id: add-labels
+    type: io.kestra.core.tasks.executions.Labels
+    labels:
+      target: "{{ inputs.target }}"
+
+  - id: log-it
+    type: io.kestra.core.tasks.log.Log
+    message: "working with target {{ inputs.target }}"
+
+  - id: wdir
+    type: io.kestra.core.tasks.flows.WorkingDirectory
+    tasks:
+      - id: wait-a-bit
+        type: io.kestra.plugin.scripts.shell.Script
+        script: |
+          sleep 3
+
+      - id: chance-to-fail
+        type: io.kestra.plugin.scripts.shell.Script
+        script: |
+          if [ $((RANDOM % 10)) -lt 1 ]; then
+            exit 0
+          fi
+
+          exit 1
+
+      - id: wait-a-bit-more
+        type: io.kestra.plugin.scripts.shell.Script
+        script: |
+          sleep 5
+
+concurrency:
+  behavior: QUEUE
+  limit: 4

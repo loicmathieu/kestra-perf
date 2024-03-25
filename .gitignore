@@ -1,0 +1,3 @@
+.env
+/kestra-data/
+/postgres-data/
